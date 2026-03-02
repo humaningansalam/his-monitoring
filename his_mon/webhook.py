@@ -1,6 +1,7 @@
 import threading
 import requests
 import json
+import logging
 from queue import Queue, Empty
 
 _webhook_manager = None
@@ -34,9 +35,11 @@ class WebhookManager:
 
 # --- Public Interface ---
 
-def init_webhook(url: str):
+def init_webhook(url: str | None):
     """ Initialize webhook manager """
     global _webhook_manager
+    if not url:
+        return
     if _webhook_manager is None:
         _webhook_manager = WebhookManager(url)
         print(f"✅ [HisMon] Webhook initialized")
@@ -46,4 +49,6 @@ def send_alert(message: str):
     if _webhook_manager:
         _webhook_manager.send(message)
     else:
-        print(f"⚠️ Webhook not initialized. Ignored: {message}")
+        logging.getLogger(__name__).debug(
+            "Webhook not initialized. Ignored message: %s", message
+        )

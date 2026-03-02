@@ -11,7 +11,7 @@ except ImportError:
     LokiQueueHandler = None
 
 def setup_logging(
-    level: str = "INFO", 
+    level: str | int = "INFO",
     loki_url: Optional[str] = None, 
     tags: Optional[Dict[str, str]] = None,
     log_file: Optional[str] = None,
@@ -27,7 +27,10 @@ def setup_logging(
     :param log_file: Path to the log file. If None, file logging is disabled.
     """
     logger = logging.getLogger()
-    log_level = getattr(logging, level.upper(), logging.INFO)
+    if isinstance(level, int):
+        log_level = level
+    else:
+        log_level = getattr(logging, str(level).upper(), logging.INFO)
     logger.setLevel(log_level)
     
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
