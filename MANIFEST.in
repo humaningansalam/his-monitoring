@@ -1,0 +1,7 @@
+include README.md
+include LICENSE
+recursive-include his_mon *.py
+prune tests
+prune build
+prune dist
+prune *.egg-info

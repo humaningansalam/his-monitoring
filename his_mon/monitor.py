@@ -9,10 +9,13 @@ class ResourceMonitor:
     def __init__(self, metrics_obj: Any, interval: int = 5):
         """
         Background thread to monitor CPU and RAM usage.
-        
+
         :param metrics_obj: An object inherited from BaseMetrics (must have cpu_usage/ram_usage attributes).
         :param interval: Update interval in seconds.
         """
+        if interval <= 0:
+            raise ValueError("interval must be greater than 0")
+
         self.metrics = metrics_obj
         self.interval = interval
         self.process = psutil.Process(os.getpid())
@@ -35,10 +38,19 @@ class ResourceMonitor:
         if self._thread: self._thread.join(timeout=2.0)
 
     def _run(self):
+        # Prime the CPU counter so the first non-blocking sample is meaningful.
+        self.process.cpu_percent(interval=None)
         while not self._stop_event.is_set():
+            # Wait the full interval first, then sample.  The Event.wait() call
+            # returns immediately when stop() sets the event, keeping stop()
+            # responsive within one interval regardless of `self.interval`.
+            self._stop_event.wait(self.interval)
+            if self._stop_event.is_set():
+                break
             try:
-                cpu = self.process.cpu_percent(interval=1.0)
-                
+                # interval=None: non-blocking; returns delta since last call.
+                cpu = self.process.cpu_percent(interval=None)
+
                 ram = self.process.memory_info().rss / (1024 * 1024)
 
                 if hasattr(self.metrics, 'cpu_usage'):
@@ -48,5 +60,3 @@ class ResourceMonitor:
 
             except Exception as e:
                 self.logger.error(f"Monitor error: {e}")
-            
-            self._stop_event.wait(max(1, self.interval - 1))

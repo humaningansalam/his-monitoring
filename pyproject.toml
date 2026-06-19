@@ -1,7 +1,11 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "his-monitoring"
 version = "0.1.1"
-description = "Add your description here"
+description = "Logging, metrics, resource monitoring, and webhook alert helpers for Python services"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -10,3 +14,13 @@ dependencies = [
     "python-logging-loki>=0.3.1",
     "requests>=2.32.5",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.setuptools]
+include-package-data = true
+package-dir = {"" = "."}
+packages = ["his_mon"]
