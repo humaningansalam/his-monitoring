@@ -66,4 +66,4 @@ def send_alert(message: str):
     if _webhook_manager:
         _webhook_manager.send(message)
     else:
-        _logger.debug("Webhook not initialized. Ignored message: %s", message)
+        _logger.debug("Webhook not initialized; alert ignored")

@@ -9,9 +9,12 @@ The package targets Python 3.11+ and depends on:
 - `prometheus-client` for metrics
 - `psutil` for process resource sampling
 - `requests` for webhook delivery
-- `python-logging-loki` for optional Loki logging support
 
-Install the package into an environment that already satisfies those runtime dependencies, or let your toolchain resolve them from `pyproject.toml`.
+Install the package into an environment that already satisfies those runtime dependencies, or let your toolchain resolve them from `pyproject.toml`. Install the `loki` extra when Loki logging support is needed:
+
+```bash
+pip install "his-monitoring[loki]"
+```
 
 ## Public API
 

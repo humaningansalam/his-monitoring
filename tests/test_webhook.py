@@ -14,7 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from his_mon.webhook import WebhookManager
+import his_mon.webhook as webhook
+from his_mon.webhook import WebhookManager, send_alert
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +141,21 @@ class TestWebhookManagerWorkerQueueAccounting:
             manager = WebhookManager("https://example.com/hook")
             manager.send("failing message")
             _wait_for_queue_drain(manager)
+
+
+class TestSendAlertNoop:
+    """Public send_alert() behavior when no webhook has been initialized."""
+
+    def test_uninitialized_webhook_does_not_log_alert_payload(self, caplog, monkeypatch):
+        """No-op alert sends must not leak alert content into debug logs."""
+        secret_message = "service token sk_live_123 should not be logged"
+        monkeypatch.setattr(webhook, "_webhook_manager", None)
+
+        with caplog.at_level(logging.DEBUG, logger="his_mon.webhook"):
+            send_alert(secret_message)
+
+        assert caplog.records
+        assert all(secret_message not in r.getMessage() for r in caplog.records)
 
 
 if __name__ == "__main__":

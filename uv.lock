@@ -100,8 +100,12 @@ source = { editable = "." }
 dependencies = [
     { name = "prometheus-client" },
     { name = "psutil" },
-    { name = "python-logging-loki" },
     { name = "requests" },
+]
+
+[package.optional-dependencies]
+loki = [
+    { name = "python-logging-loki" },
 ]
 
 [package.dev-dependencies]
@@ -113,9 +117,10 @@ dev = [
 requires-dist = [
     { name = "prometheus-client", specifier = ">=0.23.1" },
     { name = "psutil", specifier = ">=7.1.3" },
-    { name = "python-logging-loki", specifier = ">=0.3.1" },
+    { name = "python-logging-loki", marker = "extra == 'loki'", specifier = ">=0.3.1" },
     { name = "requests", specifier = ">=2.32.5" },
 ]
+provides-extras = ["loki"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]
