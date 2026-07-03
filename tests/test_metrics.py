@@ -38,6 +38,18 @@ def test_registry_isolation_for_same_app():
     assert registry2._names_to_collectors.get("isolated_app_cpu_usage_percent") is metrics2.cpu_usage
 
 
+def test_incompatible_existing_counter_labels_fail_fast():
+    """Cover BaseMetrics rejects a pre-existing counter with mismatched label names."""
+    registry = CollectorRegistry()
+    Counter("demo_errors_total", "Total errors", ["other"], registry=registry)
+
+    with pytest.raises(
+        ValueError,
+        match=r"demo_errors_total.*label names.*\('other',\).*expected.*\('type',\)",
+    ):
+        BaseMetrics("demo", registry=registry)
+
+
 def test_inc_error_increments_expected_labeled_counter():
     """Cover inc_error() increments the expected labeled counter."""
     registry = CollectorRegistry()

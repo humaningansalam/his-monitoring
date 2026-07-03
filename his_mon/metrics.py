@@ -1,5 +1,10 @@
 from prometheus_client import REGISTRY, Gauge, Counter
 
+
+def _collector_labelnames(collector):
+    return tuple(getattr(collector, "_labelnames", ()))
+
+
 class BaseMetrics:
     """
     Base metrics class providing common resource metrics (CPU, RAM, Error)
@@ -8,7 +13,9 @@ class BaseMetrics:
         if registry is None:
             registry = REGISTRY
         self.app_name = app_name
-        def _get_or_create(name, cls, *args, **kwargs):
+
+        def _get_or_create(name, cls, *args, labelnames=(), **kwargs):
+            expected_labelnames = tuple(labelnames)
             lock = getattr(registry, '_lock', None)
             if lock:
                 with lock:
@@ -18,10 +25,16 @@ class BaseMetrics:
             if collector is not None:
                 if not isinstance(collector, cls):
                     raise TypeError(f"Metric {name} is already registered but is not a {cls.__name__}")
+                actual_labelnames = _collector_labelnames(collector)
+                if actual_labelnames != expected_labelnames:
+                    raise ValueError(
+                        f"Metric {name} is already registered with label names {actual_labelnames!r}; "
+                        f"expected {expected_labelnames!r}"
+                    )
                 return collector
 
             try:
-                return cls(name, *args, registry=registry, **kwargs)
+                return cls(name, *args, registry=registry, labelnames=expected_labelnames, **kwargs)
             except ValueError:
                 if lock:
                     with lock:
@@ -31,6 +44,12 @@ class BaseMetrics:
                 if collector is not None:
                     if not isinstance(collector, cls):
                         raise TypeError(f"Metric {name} is already registered but is not a {cls.__name__}")
+                    actual_labelnames = _collector_labelnames(collector)
+                    if actual_labelnames != expected_labelnames:
+                        raise ValueError(
+                            f"Metric {name} is already registered with label names {actual_labelnames!r}; "
+                            f"expected {expected_labelnames!r}"
+                        )
                     return collector
                 raise
 
@@ -38,7 +57,7 @@ class BaseMetrics:
         self.cpu_usage = _get_or_create(f'{app_name}_cpu_usage_percent', Gauge, 'App CPU usage %')
         self.ram_usage = _get_or_create(f'{app_name}_ram_usage_mb', Gauge, 'App RAM usage MB')
         # Common Error Counter
-        self.error_count = _get_or_create(f'{app_name}_errors_total', Counter, 'Total errors', ['type'])
+        self.error_count = _get_or_create(f'{app_name}_errors_total', Counter, 'Total errors', labelnames=['type'])
 
     def inc_error(self, error_type: str = 'unknown'):
         self.error_count.labels(type=error_type).inc()
