@@ -13,6 +13,27 @@ except ImportError:
 _setup_logger = logging.getLogger(__name__)
 
 
+def _emit_warning_fallback(message: str) -> None:
+    """Emit a warning message even when root logger filtering would otherwise drop it."""
+    _setup_logger.warning(message)
+    root_logger = logging.getLogger()
+    if root_logger.isEnabledFor(logging.WARNING):
+        return
+
+    record = root_logger.makeRecord(
+        name=_setup_logger.name,
+        level=logging.WARNING,
+        fn=__file__,
+        lno=0,
+        msg=message,
+        args=(),
+        exc_info=None,
+    )
+    for handler in list(root_logger.handlers):
+        if record.levelno >= handler.level and handler.filter(record):
+            handler.handle(record)
+
+
 def _has_stream_handler(logger: logging.Logger) -> bool:
     """Return True if *logger* already has a StreamHandler targeting stdout.
 
@@ -20,7 +41,7 @@ def _has_stream_handler(logger: logging.Logger) -> bool:
     stream attribute explicitly to avoid false positives.
     """
     for h in logger.handlers:
-        if type(h) is logging.StreamHandler and getattr(h, "stream", None) is sys.stdout:
+        if isinstance(h, logging.StreamHandler) and getattr(h, "stream", None) is sys.stdout:
             return True
     return False
 
@@ -98,7 +119,7 @@ def setup_logging(
                 logger.addHandler(file_handler)
                 _setup_logger.info("[HisMon] File log: %s", log_file)
             except Exception as e:
-                _setup_logger.warning("[HisMon] File log error: %s", e)
+                _emit_warning_fallback(f"[HisMon] File log error: {e}")
 
     # Loki Handler
     if loki_url and LokiQueueHandler:

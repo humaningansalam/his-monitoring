@@ -10,8 +10,12 @@ Covers:
 from __future__ import annotations
 
 import time
+import threading
+import types
 from unittest.mock import MagicMock
+import pytest
 
+from his_mon import monitor
 from his_mon.monitor import ResourceMonitor
 
 
@@ -85,6 +89,50 @@ def test_double_start_no_extra_thread():
     first_thread = mon._thread
     mon.start()  # should be a no-op
     assert mon._thread is first_thread, "start() should not replace a live thread"
+    mon.stop()
+
+
+def test_concurrent_start_is_single_threaded(monkeypatch: pytest.MonkeyPatch):
+    """Concurrent start() calls should not create more than one monitoring thread."""
+    metrics = _make_metrics()
+    mon = ResourceMonitor(metrics, interval=1)
+
+    original_threading = monitor.threading
+    started_threads = []
+
+    class CountingThread(original_threading.Thread):
+        def __init__(self, *args, **kwargs):
+            started_threads.append(self)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(
+        monitor,
+        "threading",
+        types.SimpleNamespace(
+            Thread=CountingThread,
+            Event=original_threading.Event,
+            ThreadError=original_threading.ThreadError,
+            current_thread=original_threading.current_thread,
+            get_ident=original_threading.get_ident,
+            local=original_threading.local,
+            RLock=original_threading.RLock,
+        ),
+    )
+    start_gate = threading.Barrier(3)
+
+    def _runner():
+        start_gate.wait()
+        mon.start()
+
+    callers = [threading.Thread(target=_runner), threading.Thread(target=_runner)]
+    for caller in callers:
+        caller.start()
+    start_gate.wait()
+    for caller in callers:
+        caller.join()
+
+    assert len(started_threads) == 1
+    assert mon._thread is not None
     mon.stop()
 
 

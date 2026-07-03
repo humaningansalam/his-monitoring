@@ -56,11 +56,11 @@ def _isolated_root_logger() -> Generator[logging.Logger, None, None]:
 
 
 def _count_stream_handlers(logger: logging.Logger) -> int:
-    """Count StreamHandler instances that target sys.stdout exactly."""
+    """Count stream handlers that target sys.stdout."""
     return sum(
         1
         for h in logger.handlers
-        if type(h) is logging.StreamHandler and getattr(h, "stream", None) is sys.stdout
+        if isinstance(h, logging.StreamHandler) and getattr(h, "stream", None) is sys.stdout
     )
 
 
@@ -98,6 +98,15 @@ class TestStreamHandlerIdempotency:
         with _isolated_root_logger() as root:
             setup_logging(level="DEBUG")
             setup_logging(level="WARNING")
+            assert _count_stream_handlers(root) == 1
+
+    def test_subclassed_stdout_stream_handlers_are_deduped(self):
+        class StdoutStreamHandler(logging.StreamHandler):
+            """Custom StreamHandler subclass using sys.stdout stream."""
+
+        with _isolated_root_logger() as root:
+            root.addHandler(StdoutStreamHandler(sys.stdout))
+            setup_logging()
             assert _count_stream_handlers(root) == 1
 
 
@@ -154,9 +163,9 @@ class TestInvalidFileHandling:
         # Use a path where the directory cannot be created (root-owned path).
         bad_log = "/proc/sys/nonexistent_dir/app.log"
         with _isolated_root_logger():
-            with caplog.at_level(logging.WARNING, logger="his_mon.logger"):
+            with caplog.at_level(logging.WARNING):
                 # Must not raise.
-                setup_logging(log_file=bad_log)
+                setup_logging(level="CRITICAL", log_file=bad_log)
         assert any("File log error" in r.message for r in caplog.records), (
             "Expected a warning log about the file log error"
         )

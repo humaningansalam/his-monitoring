@@ -22,20 +22,27 @@ class ResourceMonitor:
         self._stop_event = threading.Event()
         self.logger = logging.getLogger("ResourceMonitor")
         self._thread = None
+        self._thread_lock = threading.Lock()
 
     def start(self):
         """Start the monitoring thread."""
-        if self._thread and self._thread.is_alive(): return
-        
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-        self.logger.info("✅ Resource Monitor Started")
+        with self._thread_lock:
+            if self._thread and self._thread.is_alive():
+                return
+
+            self._stop_event.clear()
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+            self.logger.info("✅ Resource Monitor Started")
 
     def stop(self):
         """Stop the monitoring thread."""
-        self._stop_event.set()
-        if self._thread: self._thread.join(timeout=2.0)
+        with self._thread_lock:
+            thread = self._thread
+            if thread is None:
+                return
+            self._stop_event.set()
+            thread.join(timeout=2.0)
 
     def _run(self):
         # Prime the CPU counter so the first non-blocking sample is meaningful.
