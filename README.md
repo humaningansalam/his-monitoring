@@ -10,7 +10,19 @@ The package targets Python 3.11+ and depends on:
 - `psutil` for process resource sampling
 - `requests` for webhook delivery
 
-Install the package into an environment that already satisfies those runtime dependencies, or let your toolchain resolve them from `pyproject.toml`. Install the `loki` extra when Loki logging support is needed:
+Install the package into an environment that already satisfies those runtime dependencies, or let your toolchain resolve them from `pyproject.toml`:
+
+```bash
+pip install his-monitoring
+```
+
+When installing from a local checkout, run this from the `repos/` directory:
+
+```bash
+pip install .
+```
+
+Install the `loki` extra only when Loki logging support is needed:
 
 ```bash
 pip install "his-monitoring[loki]"
