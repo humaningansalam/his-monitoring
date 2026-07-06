@@ -54,6 +54,8 @@ send_alert("service started")
 
 ## Verification
 
+When evaluating upgrade impact for a version, check `CHANGELOG.md` first for version-to-version notes and compatibility guidance.
+
 Run the package tests and build from the `repos/` directory after activating the project environment:
 
 ```bash
