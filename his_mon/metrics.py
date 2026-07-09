@@ -1,4 +1,16 @@
+import re
 from prometheus_client import REGISTRY, Gauge, Counter
+
+_METRIC_PREFIX_RE = re.compile(r"^[a-zA-Z_:][a-zA-Z0-9_:]*$")
+
+
+def _validate_metric_prefix(app_name: str) -> None:
+    if not isinstance(app_name, str) or not app_name:
+        raise ValueError("app_name must be a non-empty string")
+    if not _METRIC_PREFIX_RE.fullmatch(app_name):
+        raise ValueError(
+            f"Invalid app_name for Prometheus metric prefix: {app_name!r}"
+        )
 
 
 def _collector_labelnames(collector):
@@ -10,6 +22,7 @@ class BaseMetrics:
     Base metrics class providing common resource metrics (CPU, RAM, Error)
     """
     def __init__(self, app_name: str, *, registry=None):
+        _validate_metric_prefix(app_name)
         if registry is None:
             registry = REGISTRY
         self.app_name = app_name

@@ -2,8 +2,8 @@
 
 Covers:
 - Successful POST: correct payload and timeout are passed to requests.post.
-- Non-2xx response: error is logged, exception is raised.
-- requests.post exception: error is logged, exception propagates.
+- Non-2xx response: exception is raised (logging moved to _worker).
+- requests.post exception: exception propagates (logging moved to _worker).
 - Queue task_done() is called even after a failed send (no Queue.join() hang).
 """
 from __future__ import annotations
@@ -89,33 +89,23 @@ class TestWebhookManagerPost:
             timeout=5,
         )
 
-    def test_non_2xx_response_logs_error_and_raises(self, caplog):
-        """_post() logs an error and raises RuntimeError on a non-2xx HTTP response."""
+    def test_non_2xx_response_raises_runtime_error(self):
+        """_post() raises RuntimeError on a non-2xx HTTP response."""
         manager = WebhookManager.__new__(WebhookManager)
         manager.url = "https://example.com/hook"
 
         with patch("his_mon.webhook.requests.post", return_value=_make_error_response(503, "Service Unavailable")):
-            with caplog.at_level(logging.ERROR, logger="his_mon.webhook"):
-                with pytest.raises(RuntimeError, match="HTTP 503"):
-                    manager._post("test message")
+            with pytest.raises(RuntimeError, match="HTTP 503"):
+                manager._post("test message")
 
-        assert any("503" in r.message for r in caplog.records), (
-            "Expected an ERROR log containing the HTTP status code"
-        )
-
-    def test_requests_post_exception_logs_error_and_reraises(self, caplog):
-        """_post() logs an error and re-raises when requests.post raises an exception."""
+    def test_requests_post_exception_propagates(self):
+        """_post() re-raises when requests.post raises an exception."""
         manager = WebhookManager.__new__(WebhookManager)
         manager.url = "https://example.com/hook"
 
         with patch("his_mon.webhook.requests.post", side_effect=ConnectionError("timeout")):
-            with caplog.at_level(logging.ERROR, logger="his_mon.webhook"):
-                with pytest.raises(ConnectionError):
-                    manager._post("test message")
-
-        assert any("timeout" in r.message for r in caplog.records), (
-            "Expected an ERROR log containing the exception message"
-        )
+            with pytest.raises(ConnectionError, match="timeout"):
+                manager._post("test message")
 
 
 class TestWebhookManagerWorkerQueueAccounting:

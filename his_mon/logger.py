@@ -1,6 +1,7 @@
 import logging
 import sys
 import os
+import threading
 from logging.handlers import RotatingFileHandler
 from multiprocessing import Queue
 from typing import Optional, Dict
@@ -11,6 +12,7 @@ except ImportError:
     LokiQueueHandler = None
 
 _setup_logger = logging.getLogger(__name__)
+_setup_lock = threading.RLock()
 
 
 def _emit_warning_fallback(message: str) -> None:
@@ -32,6 +34,17 @@ def _emit_warning_fallback(message: str) -> None:
     for handler in list(root_logger.handlers):
         if record.levelno >= handler.level and handler.filter(record):
             handler.handle(record)
+
+
+def _coerce_log_level(level: str | int) -> int:
+    if isinstance(level, int):
+        return level
+
+    level_name = str(level).upper()
+    levels = logging.getLevelNamesMapping()
+    if level_name not in levels:
+        raise ValueError(f"Invalid logging level: {level!r}")
+    return levels[level_name]
 
 
 def _has_stream_handler(logger: logging.Logger) -> bool:
@@ -87,51 +100,53 @@ def setup_logging(
     :param tags: Tags for Loki logs (e.g., {'app': 'myapp'})
     :param log_file: Path to the log file. If None, file logging is disabled.
     """
-    logger = logging.getLogger()
-    if isinstance(level, int):
-        log_level = level
-    else:
-        log_level = getattr(logging, str(level).upper(), logging.INFO)
-    logger.setLevel(log_level)
+    log_level = _coerce_log_level(level)
 
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    with _setup_lock:
+        logger = logging.getLogger()
+        logger.setLevel(log_level)
 
-    # Console Handler
-    if not _has_stream_handler(logger):
-        stream_handler = logging.StreamHandler(sys.stdout)
-        stream_handler.setFormatter(formatter)
-        logger.addHandler(stream_handler)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-    # File Handler
-    if log_file:
-        if _has_file_handler(logger, log_file):
-            _setup_logger.debug("[HisMon] File log already configured: %s", log_file)
-        else:
-            try:
-                log_dir = os.path.dirname(log_file)
-                if log_dir:
-                    os.makedirs(log_dir, exist_ok=True)
+        # Console Handler
+        if not _has_stream_handler(logger):
+            stream_handler = logging.StreamHandler(sys.stdout)
+            stream_handler.setFormatter(formatter)
+            logger.addHandler(stream_handler)
 
-                file_handler = RotatingFileHandler(
-                    filename=log_file, maxBytes=max_bytes, backupCount=backup_count, encoding='utf-8'
-                )
-                file_handler.setFormatter(formatter)
-                logger.addHandler(file_handler)
-                _setup_logger.info("[HisMon] File log: %s", log_file)
-            except Exception as e:
-                _emit_warning_fallback(f"[HisMon] File log error: {e}")
+        # File Handler
+        if log_file:
+            if _has_file_handler(logger, log_file):
+                _setup_logger.debug("[HisMon] File log already configured: %s", log_file)
+            else:
+                try:
+                    log_dir = os.path.dirname(log_file)
+                    if log_dir:
+                        os.makedirs(log_dir, exist_ok=True)
 
-    # Loki Handler
-    if loki_url and LokiQueueHandler:
-        resolved_tags = tags or {}
-        if _has_loki_handler(logger, loki_url, resolved_tags):
-            _setup_logger.debug("[HisMon] Loki handler already configured: %s", loki_url)
-        else:
-            try:
-                loki_handler = LokiQueueHandler(
-                    Queue(-1), url=loki_url, tags=resolved_tags, version="1"
-                )
-                logger.addHandler(loki_handler)
-                _setup_logger.info("[HisMon] Loki attached: %s", loki_url)
-            except Exception as e:
-                _setup_logger.warning("[HisMon] Loki error: %s", e)
+                    file_handler = RotatingFileHandler(
+                        filename=log_file, maxBytes=max_bytes, backupCount=backup_count, encoding='utf-8'
+                    )
+                    file_handler.setFormatter(formatter)
+                    logger.addHandler(file_handler)
+                    _setup_logger.info("[HisMon] File log: %s", log_file)
+                except Exception as e:
+                    _emit_warning_fallback(f"[HisMon] File log error: {e}")
+
+        # Loki Handler
+        if loki_url:
+            if LokiQueueHandler is None:
+                _emit_warning_fallback(f"[HisMon] Loki attached: {loki_url} (logging-loki not installed, handler skipped)")
+            else:
+                resolved_tags = tags or {}
+                if _has_loki_handler(logger, loki_url, resolved_tags):
+                    _setup_logger.debug("[HisMon] Loki handler already configured: %s", loki_url)
+                else:
+                    try:
+                        loki_handler = LokiQueueHandler(
+                            Queue(-1), url=loki_url, tags=resolved_tags, version="1"
+                        )
+                        logger.addHandler(loki_handler)
+                        _setup_logger.info("[HisMon] Loki attached: %s", loki_url)
+                    except Exception as e:
+                        _setup_logger.warning("[HisMon] Loki error: %s", e)

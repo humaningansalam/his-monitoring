@@ -1,6 +1,6 @@
 """Smoke tests for the public his_mon package API."""
 
-from his_mon import BaseMetrics, ResourceMonitor, init_webhook, send_alert, setup_logging
+from his_mon import BaseMetrics, ResourceMonitor, init_webhook, send_alert, setup_logging, shutdown_webhook
 import his_mon
 
 
@@ -10,6 +10,7 @@ EXPECTED_PUBLIC_API = [
     "ResourceMonitor",
     "init_webhook",
     "send_alert",
+    "shutdown_webhook",
 ]
 
 

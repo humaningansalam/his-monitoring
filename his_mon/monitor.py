@@ -33,7 +33,7 @@ class ResourceMonitor:
             self._stop_event.clear()
             self._thread = threading.Thread(target=self._run, daemon=True)
             self._thread.start()
-            self.logger.info("✅ Resource Monitor Started")
+            self.logger.info("Resource monitor started")
 
     def stop(self):
         """Stop the monitoring thread."""
@@ -42,7 +42,8 @@ class ResourceMonitor:
             if thread is None:
                 return
             self._stop_event.set()
-            thread.join(timeout=2.0)
+            if thread is not threading.current_thread():
+                thread.join(timeout=2.0)
 
     def _run(self):
         # Prime the CPU counter so the first non-blocking sample is meaningful.
@@ -65,5 +66,5 @@ class ResourceMonitor:
                 if hasattr(self.metrics, 'ram_usage'):
                     self.metrics.ram_usage.set(ram)
 
-            except Exception as e:
-                self.logger.error(f"Monitor error: {e}")
+            except Exception:
+                self.logger.exception("Resource monitor error")
