@@ -22,7 +22,7 @@ class WebhookManager:
     def send(self, message: str) -> bool:
         with self._state_lock:
             if self._closed:
-                _logger.debug("Webhook manager is stopped; message ignored: %s", message[:80])
+                _logger.debug("Webhook manager is stopped; alert ignored")
                 return False
             self.queue.put(message)
             return True

@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import his_mon.webhook as webhook
-from his_mon.webhook import WebhookManager, send_alert
+from his_mon.webhook import WebhookManager, init_webhook, send_alert, shutdown_webhook
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +143,21 @@ class TestSendAlertNoop:
 
         with caplog.at_level(logging.DEBUG, logger="his_mon.webhook"):
             send_alert(secret_message)
+
+        assert caplog.records
+        assert all(secret_message not in r.getMessage() for r in caplog.records)
+
+    def test_retained_closed_manager_does_not_log_alert_payload(self, caplog, monkeypatch):
+        """Retained manager references must not leak ignored alert content after shutdown."""
+        secret_message = "service token sk_live_456 should not be logged"
+        monkeypatch.setattr(webhook, "_webhook_manager", None)
+
+        manager = init_webhook("https://example.com/hook")
+        shutdown_webhook()
+
+        with caplog.at_level(logging.DEBUG, logger="his_mon.webhook"):
+            assert manager is not None
+            assert manager.send(secret_message) is False
 
         assert caplog.records
         assert all(secret_message not in r.getMessage() for r in caplog.records)
