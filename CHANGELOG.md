@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+- Hardened logging, metrics, monitor, and webhook helpers.
+- Removed obsolete product documentation and feedback scratch file.
+- Public API remains available from `his_mon` with the documented surface.
+
 ## 0.1.1
 
 - Core package metadata identifies this release as `0.1.1` and marks the package as `his-monitoring`.
