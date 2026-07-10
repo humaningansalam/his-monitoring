@@ -132,6 +132,24 @@ class TestWebhookManagerWorkerQueueAccounting:
             manager.send("failing message")
             _wait_for_queue_drain(manager)
 
+    def test_stopped_worker_acknowledges_queued_alert_without_delivery(self, caplog):
+        """A non-draining stop must not strand queued work in Queue.join()."""
+        manager = WebhookManager.__new__(WebhookManager)
+        manager.url = "https://example.com/hook"
+        manager.queue = webhook.Queue()
+        manager._stop_event = threading.Event()
+        manager._stop_event.set()
+
+        secret_message = "queued alert sk_live_789 should not be logged"
+        manager.queue.put(secret_message)
+        with caplog.at_level(logging.DEBUG, logger="his_mon.webhook"):
+            with patch("his_mon.webhook.requests.post") as mock_post:
+                manager._worker()
+
+        manager.queue.join()
+        mock_post.assert_not_called()
+        assert all(secret_message not in record.getMessage() for record in caplog.records)
+
 
 class TestSendAlertNoop:
     """Public send_alert() behavior when no webhook has been initialized."""

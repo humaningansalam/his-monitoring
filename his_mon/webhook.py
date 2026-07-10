@@ -43,13 +43,20 @@ class WebhookManager:
             self._thread.join(timeout=timeout)
 
     def _worker(self):
-        while not self._stop_event.is_set():
+        while True:
             try:
                 msg = self.queue.get(timeout=0.1)
             except Empty:
+                if self._stop_event.is_set():
+                    return
                 continue
             try:
-                self._post(msg)
+                if self._stop_event.is_set():
+                    # A non-draining shutdown drops queued alerts, but each
+                    # dropped item must still be acknowledged for Queue.join().
+                    _logger.debug("Webhook manager stopped; queued alert discarded")
+                else:
+                    self._post(msg)
             except Exception:
                 _logger.exception("Webhook delivery failed")
             finally:
