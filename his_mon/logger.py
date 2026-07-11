@@ -78,7 +78,11 @@ def _has_loki_handler(logger: logging.Logger, loki_url: str, tags: Dict[str, str
         return False
     for h in logger.handlers:
         if isinstance(h, LokiQueueHandler):
-            if getattr(h, "url", None) == loki_url and getattr(h, "tags", None) == tags:
+            handler = getattr(h, "handler", None)
+            emitter = getattr(handler, "emitter", None)
+            configured_url = getattr(h, "_his_mon_loki_url", getattr(emitter, "url", None))
+            configured_tags = getattr(h, "_his_mon_loki_tags", getattr(emitter, "tags", None))
+            if configured_url == loki_url and configured_tags == tags:
                 return True
     return False
 
@@ -146,6 +150,10 @@ def setup_logging(
                         loki_handler = LokiQueueHandler(
                             Queue(-1), url=loki_url, tags=resolved_tags, version="1"
                         )
+                        # Avoid coupling later deduplication to the dependency's
+                        # private queue-handler wrapper structure.
+                        loki_handler._his_mon_loki_url = loki_url
+                        loki_handler._his_mon_loki_tags = resolved_tags.copy()
                         logger.addHandler(loki_handler)
                         _setup_logger.info("[HisMon] Loki attached: %s", loki_url)
                     except Exception as e:

@@ -176,12 +176,13 @@ class TestInvalidFileHandling:
 # ---------------------------------------------------------------------------
 
 class FakeLokiHandler(logging.Handler):
-    """Minimal stand-in for LokiQueueHandler for idempotency testing."""
+    """Stand-in matching python-logging-loki's nested emitter configuration."""
 
     def __init__(self, queue, *, url: str, tags: dict, version: str = "1"):
         super().__init__()
-        self.url = url
-        self.tags = tags
+        self.handler = MagicMock()
+        self.handler.emitter.url = url
+        self.handler.emitter.tags = tags
         self.version = version
 
     def emit(self, record):  # pragma: no cover

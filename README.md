@@ -10,13 +10,9 @@ The package targets Python 3.11+ and depends on:
 - `psutil` for process resource sampling
 - `requests` for webhook delivery
 
-Install the package into an environment that already satisfies those runtime dependencies, or let your toolchain resolve them from `pyproject.toml`:
-
-```bash
-pip install his-monitoring
-```
-
-When installing from a local checkout, run this from the `repos/` directory:
+The package is currently distributed from its source repository rather than a
+public package index. From a local checkout, run this from the `repos/`
+directory; pip resolves the declared runtime dependencies from `pyproject.toml`:
 
 ```bash
 pip install .
@@ -37,6 +33,7 @@ The package exports these entry points from `his_mon`:
 - `ResourceMonitor(metrics_obj, interval=5)`: start a background sampler that updates `cpu_usage` and `ram_usage` on a metrics object.
 - `init_webhook(url)`: initialize the webhook sender once for a destination URL.
 - `send_alert(message)`: queue a webhook message if a webhook manager has been initialized.
+- `shutdown_webhook(...)`: stop the process-wide webhook worker, optionally after draining queued alerts.
 
 ## Minimal usage
 
