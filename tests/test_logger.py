@@ -210,6 +210,20 @@ class TestLokiHandlerIdempotency:
                 f"Expected 1 Loki handler, got {len(loki_handlers)}"
             )
 
+    def test_caller_tag_mutation_does_not_change_handler_configuration(self):
+        loki_url = "http://loki:3100/loki/api/v1/push"
+        tags = {"app": "test"}
+
+        with _isolated_root_logger() as root:
+            with patch.dict("his_mon.logger.__dict__", {"LokiQueueHandler": FakeLokiHandler}):
+                setup_logging(loki_url=loki_url, tags=tags)
+                tags["app"] = "mutated"
+                setup_logging(loki_url=loki_url, tags={"app": "test"})
+
+            loki_handlers = [h for h in root.handlers if isinstance(h, FakeLokiHandler)]
+            assert len(loki_handlers) == 1
+            assert loki_handlers[0].handler.emitter.tags == {"app": "test"}
+
     def test_different_loki_urls_each_get_handler(self):
         url_a = "http://loki-a:3100/loki/api/v1/push"
         url_b = "http://loki-b:3100/loki/api/v1/push"

@@ -142,7 +142,9 @@ def setup_logging(
             if LokiQueueHandler is None:
                 _emit_warning_fallback(f"[HisMon] Loki attached: {loki_url} (logging-loki not installed, handler skipped)")
             else:
-                resolved_tags = tags or {}
+                # The handler retains this mapping, so snapshot caller-owned
+                # dictionaries before they can be mutated after setup.
+                resolved_tags = dict(tags) if tags else {}
                 if _has_loki_handler(logger, loki_url, resolved_tags):
                     _setup_logger.debug("[HisMon] Loki handler already configured: %s", loki_url)
                 else:
