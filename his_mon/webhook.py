@@ -65,7 +65,7 @@ class WebhookManager:
     def _post(self, message: str):
         payload = {"text": message}
         response = requests.post(self.url, json=payload, timeout=5)
-        if not response.ok:
+        if not 200 <= response.status_code < 300:
             raise RuntimeError(
                 f"Webhook delivery failed: HTTP {response.status_code} {response.reason}"
             )

@@ -98,6 +98,17 @@ class TestWebhookManagerPost:
             with pytest.raises(RuntimeError, match="HTTP 503"):
                 manager._post("test message")
 
+    def test_redirect_response_raises_runtime_error(self):
+        """_post() treats 3xx responses as failures even though requests marks them ok."""
+        manager = WebhookManager.__new__(WebhookManager)
+        manager.url = "https://example.com/hook"
+        response = _make_ok_response(302)
+        response.reason = "Found"
+
+        with patch("his_mon.webhook.requests.post", return_value=response):
+            with pytest.raises(RuntimeError, match="HTTP 302"):
+                manager._post("test message")
+
     def test_requests_post_exception_propagates(self):
         """_post() re-raises when requests.post raises an exception."""
         manager = WebhookManager.__new__(WebhookManager)
