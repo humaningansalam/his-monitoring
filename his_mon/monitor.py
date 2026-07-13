@@ -1,3 +1,4 @@
+import math
 import os
 import time
 import threading
@@ -13,8 +14,8 @@ class ResourceMonitor:
         :param metrics_obj: An object inherited from BaseMetrics (must have cpu_usage/ram_usage attributes).
         :param interval: Update interval in seconds.
         """
-        if interval <= 0:
-            raise ValueError("interval must be greater than 0")
+        if interval <= 0 or not math.isfinite(interval):
+            raise ValueError("interval must be finite and greater than 0")
 
         self.metrics = metrics_obj
         self.interval = interval

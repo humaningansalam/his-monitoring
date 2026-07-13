@@ -142,7 +142,7 @@ def test_zero_interval_rejected():
     try:
         ResourceMonitor(metrics, interval=0)
     except ValueError as exc:
-        assert str(exc) == "interval must be greater than 0"
+        assert str(exc) == "interval must be finite and greater than 0"
     else:
         raise AssertionError("interval=0 should raise ValueError")
 
@@ -153,9 +153,21 @@ def test_negative_interval_rejected():
     try:
         ResourceMonitor(metrics, interval=-1)
     except ValueError as exc:
-        assert str(exc) == "interval must be greater than 0"
+        assert str(exc) == "interval must be finite and greater than 0"
     else:
         raise AssertionError("negative interval should raise ValueError")
+
+
+@pytest.mark.parametrize("interval", [float("nan"), float("inf")])
+def test_non_finite_interval_rejected(interval):
+    """Non-finite intervals cannot create a busy loop or crash the monitor thread."""
+    metrics = _make_metrics()
+
+    with pytest.raises(
+        ValueError,
+        match="interval must be finite and greater than 0",
+    ):
+        ResourceMonitor(metrics, interval=interval)
 
 
 def test_missing_gauge_attributes():
