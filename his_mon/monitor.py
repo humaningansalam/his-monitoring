@@ -48,7 +48,10 @@ class ResourceMonitor:
 
     def _run(self):
         # Prime the CPU counter so the first non-blocking sample is meaningful.
-        self.process.cpu_percent(interval=None)
+        try:
+            self.process.cpu_percent(interval=None)
+        except Exception:
+            self.logger.exception("Resource monitor error")
         while not self._stop_event.is_set():
             # Wait the full interval first, then sample.  The Event.wait() call
             # returns immediately when stop() sets the event, keeping stop()

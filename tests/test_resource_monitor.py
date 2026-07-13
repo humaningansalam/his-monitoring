@@ -13,6 +13,7 @@ import time
 import threading
 import types
 from unittest.mock import MagicMock
+import psutil
 import pytest
 
 from his_mon import monitor
@@ -64,6 +65,25 @@ def test_metrics_updated_after_one_interval():
     # CPU value must be a non-negative float (0.0 is fine on an idle process).
     cpu_val = metrics.cpu_usage.set.call_args[0][0]
     assert isinstance(cpu_val, float) and cpu_val >= 0.0, f"unexpected cpu value: {cpu_val}"
+
+
+def test_transient_initial_cpu_error_does_not_stop_monitor(caplog):
+    """A failed CPU-primer sample is logged and retried on the normal loop."""
+    metrics = _make_metrics()
+    mon = ResourceMonitor(metrics, interval=0.01)
+    mon.process = MagicMock()
+    mon.process.cpu_percent.side_effect = [psutil.AccessDenied(pid=123), 12.5]
+    mon.process.memory_info.return_value = types.SimpleNamespace(rss=1024 * 1024)
+
+    with caplog.at_level("ERROR", logger="ResourceMonitor"):
+        mon.start()
+        assert _wait_for(lambda: metrics.cpu_usage.set.called, timeout=0.5)
+        assert mon._thread is not None and mon._thread.is_alive()
+        mon.stop()
+
+    metrics.cpu_usage.set.assert_called_with(12.5)
+    metrics.ram_usage.set.assert_called_with(1.0)
+    assert any("Resource monitor error" in record.getMessage() for record in caplog.records)
 
 
 def test_stop_is_responsive():
