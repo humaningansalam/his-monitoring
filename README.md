@@ -38,7 +38,14 @@ The package exports these entry points from `his_mon`:
 ## Minimal usage
 
 ```python
-from his_mon import BaseMetrics, ResourceMonitor, init_webhook, send_alert, setup_logging
+from his_mon import (
+    BaseMetrics,
+    ResourceMonitor,
+    init_webhook,
+    send_alert,
+    setup_logging,
+    shutdown_webhook,
+)
 
 setup_logging(level="INFO", log_file="app.log")
 metrics = BaseMetrics("my_app")
@@ -46,7 +53,11 @@ monitor = ResourceMonitor(metrics, interval=10)
 
 init_webhook("https://example.invalid/webhook")
 monitor.start()
-send_alert("service started")
+try:
+    send_alert("service started")
+finally:
+    monitor.stop()
+    shutdown_webhook(drain=True)
 ```
 
 ## Verification
