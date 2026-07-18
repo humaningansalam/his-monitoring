@@ -21,7 +21,7 @@ pip install .
 Install the `loki` extra only when Loki logging support is needed:
 
 ```bash
-pip install "his-monitoring[loki]"
+pip install ".[loki]"
 ```
 
 ## Public API
@@ -38,6 +38,8 @@ The package exports these entry points from `his_mon`:
 ## Minimal usage
 
 ```python
+import os
+
 from his_mon import (
     BaseMetrics,
     ResourceMonitor,
@@ -51,7 +53,7 @@ setup_logging(level="INFO", log_file="app.log")
 metrics = BaseMetrics("my_app")
 monitor = ResourceMonitor(metrics, interval=10)
 
-init_webhook("https://example.invalid/webhook")
+init_webhook(os.getenv("WEBHOOK_URL"))
 monitor.start()
 try:
     send_alert("service started")
@@ -76,5 +78,6 @@ uv build
 - `ResourceMonitor` samples the current Python process and updates metrics in a daemon thread; stop it explicitly when shutting down.
 - `setup_logging` is idempotent for equivalent handlers and supports stdout, rotating file output, and Loki when `python-logging-loki` is available.
 - `init_webhook` keeps a single process-wide webhook manager; `send_alert` is a no-op until initialization.
+- `shutdown_webhook(drain=True)` waits until queued alerts are accounted for. For non-draining shutdown, `timeout` bounds the worker join; an in-flight delivery may finish asynchronously, and `init_webhook` retains that manager until its worker stops.
 - `BaseMetrics` registers Prometheus collectors using the provided app name as a prefix, so reuse the same prefix consistently within one registry.
 - The webhook sender posts JSON payloads with a `text` field and reports HTTP or transport failures through the logger.
