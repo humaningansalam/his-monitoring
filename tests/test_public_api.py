@@ -1,7 +1,14 @@
 """Smoke tests for the public his_mon package API."""
 
-from his_mon import BaseMetrics, ResourceMonitor, init_webhook, send_alert, setup_logging, shutdown_webhook
 import his_mon
+from his_mon import (
+    BaseMetrics,
+    ResourceMonitor,
+    init_webhook,
+    send_alert,
+    setup_logging,
+    shutdown_webhook,
+)
 
 
 EXPECTED_PUBLIC_API = [
@@ -24,3 +31,4 @@ def test_public_api_imports_work():
     assert ResourceMonitor is his_mon.ResourceMonitor
     assert init_webhook is his_mon.init_webhook
     assert send_alert is his_mon.send_alert
+    assert shutdown_webhook is his_mon.shutdown_webhook
