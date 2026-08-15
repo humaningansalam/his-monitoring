@@ -48,7 +48,9 @@ def _validate_metric_prefix(app_name: str) -> None:
         raise ValueError("app_name must be a non-empty string")
     if not _METRIC_PREFIX_RE.fullmatch(app_name):
         raise ValueError(
-            f"Invalid app_name for Prometheus metric prefix: {app_name!r}"
+            f"Invalid app_name for Prometheus metric prefix: {app_name!r}. "
+            "Use a name that starts with a letter, '_' or ':' and then contains "
+            "only letters, digits, '_' or ':' (for example, 'orders_api')."
         )
 
 
@@ -119,8 +121,13 @@ def _get_or_create_collector(
 
 
 class BaseMetrics:
-    """
-    Base metrics class providing common resource metrics (CPU, RAM, Error)
+    """Create or reuse the package's CPU, RAM, and error collectors.
+
+    ``app_name`` is used directly as a Prometheus metric-name prefix, so it
+    must already be a valid Prometheus prefix such as ``"orders_api"``.
+    Collectors are registered in ``registry`` (or the default Prometheus
+    registry when omitted); exposing that registry over HTTP remains the
+    caller's responsibility.
     """
     def __init__(
         self,

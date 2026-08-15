@@ -29,7 +29,7 @@ pip install ".[loki]"
 The package exports these entry points from `his_mon`:
 
 - `setup_logging(...)`: configure root logging with stdout, optional rotating file output, and optional Loki support.
-- `BaseMetrics(app_name, *, registry=None)`: create Prometheus gauges for CPU and RAM usage plus an error counter named from `app_name`.
+- `BaseMetrics(app_name, *, registry=None)`: create Prometheus gauges for CPU and RAM usage plus an error counter named from a Prometheus-compatible `app_name` prefix such as `orders_api`.
 - `ResourceMonitor(metrics_obj, interval=5)`: start a background sampler that updates `cpu_usage` and `ram_usage` on a metrics object.
 - `init_webhook(url)`: initialize the webhook sender once for a destination URL.
 - `send_alert(message)`: queue a webhook message if a webhook manager has been initialized.
@@ -61,6 +61,33 @@ finally:
     monitor.stop()
     shutdown_webhook(drain=True)
 ```
+
+### Exposing the metrics to Prometheus
+
+`BaseMetrics` registers collectors and `ResourceMonitor` updates them, but
+`his-monitoring` does not start an HTTP metrics endpoint. If the service does
+not already expose the default Prometheus registry, the existing
+`prometheus-client` dependency can do that directly:
+
+```python
+from prometheus_client import start_http_server
+
+from his_mon import BaseMetrics, ResourceMonitor
+
+metrics = BaseMetrics("orders_api")
+monitor = ResourceMonitor(metrics)
+
+start_http_server(8000)
+monitor.start()
+```
+
+Prometheus can then scrape the service's metrics endpoint on port `8000`.
+When using a custom `CollectorRegistry`, expose that same registry through the
+service's existing Prometheus integration instead of the default registry.
+
+`app_name` is part of each metric name. It must start with a letter, `_`, or
+`:` and then contain only letters, digits, `_`, or `:`. For example, use
+`orders_api` rather than `orders-api`.
 
 ## Verification
 
