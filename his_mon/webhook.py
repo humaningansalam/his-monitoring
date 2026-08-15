@@ -6,7 +6,6 @@ import requests
 
 from . import _runtime
 from ._runtime import (
-    WebhookDeliveryError,
     WebhookDeliveryErrorCode,
     WebhookState,
 )
@@ -15,19 +14,14 @@ _logger = logging.getLogger(__name__)
 
 
 class WebhookManager:
-    def __init__(self, config: _runtime.WebhookConfig):
-        self.config = config
-        self.queue: Queue[
-            _runtime.WebhookAlert | _runtime.WebhookStopCommand
-        ] = Queue()
+    def __init__(self, url: str):
+        self.url = url
+        self.queue: Queue[object] = Queue()
+        self._stop_command = object()
         self._state_lock = threading.Lock()
         self._state = WebhookState.RUNNING
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
-
-    @property
-    def url(self) -> str:
-        return self.config.url
 
     @property
     def state(self) -> WebhookState:
@@ -39,7 +33,7 @@ class WebhookManager:
             if self._state is not WebhookState.RUNNING:
                 _logger.debug("Webhook manager is stopped; alert ignored")
                 return False
-            self.queue.put(_runtime.WebhookAlert(message))
+            self.queue.put(message)
             return True
 
     def _request_stop(self, drain: bool) -> WebhookState:
@@ -54,7 +48,7 @@ class WebhookManager:
                     if drain and not is_worker_thread
                     else WebhookState.STOPPING
                 )
-                self.queue.put(_runtime.WEBHOOK_STOP)
+                self.queue.put(self._stop_command)
             elif self._state is WebhookState.DRAINING and not drain:
                 self._state = WebhookState.STOPPING
             return self._state
@@ -64,21 +58,12 @@ class WebhookManager:
             self._thread.join(timeout=timeout)
         return self.state
 
-    def stop(
-        self,
-        drain: bool = False,
-        timeout: float | None = 2.0,
-    ) -> WebhookState:
-        requested_state = self._request_stop(drain)
-        wait_timeout = None if requested_state is WebhookState.DRAINING else timeout
-        return self._wait_for_stop(wait_timeout)
-
     def _worker(self):
         try:
             while True:
                 command = self.queue.get()
                 try:
-                    if isinstance(command, _runtime.WebhookStopCommand):
+                    if command is self._stop_command:
                         return
 
                     with self._state_lock:
@@ -87,15 +72,11 @@ class WebhookManager:
                         _logger.debug("Webhook manager stopped; queued alert discarded")
                     else:
                         try:
-                            self._post(command.message)
-                        except WebhookDeliveryError as error:
-                            _logger.error(
-                                "Webhook delivery failed: HTTP %s",
-                                error.status_code,
-                                extra={
-                                    "his_mon_code": error.code,
-                                    "http_status": error.status_code,
-                                },
+                            response = requests.post(
+                                self.url,
+                                json={"text": command},
+                                timeout=5,
+                                allow_redirects=False,
                             )
                         except (requests.RequestException, OSError) as error:
                             _logger.error(
@@ -108,22 +89,23 @@ class WebhookManager:
                                     "error_type": type(error).__name__,
                                 },
                             )
+                        else:
+                            if not 200 <= response.status_code < 300:
+                                _logger.error(
+                                    "Webhook delivery failed: HTTP %s",
+                                    response.status_code,
+                                    extra={
+                                        "his_mon_code": (
+                                            WebhookDeliveryErrorCode.HTTP_STATUS
+                                        ),
+                                        "http_status": response.status_code,
+                                    },
+                                )
                 finally:
                     self.queue.task_done()
         finally:
             with self._state_lock:
                 self._state = WebhookState.STOPPED
-
-    def _post(self, message: str):
-        payload = {"text": message}
-        response = requests.post(
-            self.url,
-            json=payload,
-            timeout=5,
-            allow_redirects=False,
-        )
-        if not 200 <= response.status_code < 300:
-            raise WebhookDeliveryError(response.status_code)
 
 
 def init_webhook(url: str | None):
@@ -134,9 +116,8 @@ def init_webhook(url: str | None):
     with _runtime.webhook_lock:
         manager = _runtime.webhook_manager
         if manager is None or manager.state is WebhookState.STOPPED:
-            config = _runtime.WebhookConfig(url)
-            manager = WebhookManager(config)
-            _runtime.webhook_config = config
+            manager = WebhookManager(url)
+            _runtime.webhook_url = url
             _runtime.webhook_manager = manager
             _logger.info("Webhook initialized")
         elif manager.url != url:
@@ -147,8 +128,8 @@ def send_alert(message: str):
     """Send webhook."""
     with _runtime.webhook_lock:
         manager = _runtime.webhook_manager
-        if manager is None and _runtime.webhook_config is not None:
-            manager = WebhookManager(_runtime.webhook_config)
+        if manager is None and _runtime.webhook_url is not None:
+            manager = WebhookManager(_runtime.webhook_url)
             _runtime.webhook_manager = manager
     if manager is None:
         _logger.debug("Webhook not initialized; alert ignored")
@@ -164,7 +145,7 @@ def shutdown_webhook(
     """Shutdown the global webhook manager."""
     with _runtime.webhook_lock:
         manager = _runtime.webhook_manager
-        _runtime.webhook_config = None
+        _runtime.webhook_url = None
         if manager is None:
             return
         requested_state = manager._request_stop(drain)

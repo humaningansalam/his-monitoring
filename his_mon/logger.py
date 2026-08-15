@@ -39,10 +39,6 @@ class _LokiHandlerIdentity(NamedTuple):
         )
 
 
-class _ConsoleHandlerIdentity(NamedTuple):
-    schema: str
-
-
 class _CurrentStdout:
     def write(self, message: str) -> int:
         return sys.stdout.write(message)
@@ -51,7 +47,7 @@ class _CurrentStdout:
         sys.stdout.flush()
 
 
-_CONSOLE_IDENTITY = _ConsoleHandlerIdentity("his_mon.console_handler.v1")
+_CONSOLE_IDENTITY = "his_mon.console_handler.v1"
 _CONSOLE_IDENTITY_ATTRIBUTE = "_his_mon_console_identity"
 _LOKI_IDENTITY_ATTRIBUTE = "_his_mon_loki_identity"
 
