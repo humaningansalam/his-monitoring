@@ -80,7 +80,7 @@ def test_transient_sampling_error_does_not_stop_monitor(caplog):
     """A psutil sampling failure is logged and retried on the normal loop."""
     metrics = _make_metrics()
     mon = ResourceMonitor(metrics, interval=0.01)
-    mon.process = MagicMock()
+    mon.process = MagicMock(pid=os.getpid())
     mon.process.cpu_percent.side_effect = [
         0.0,
         psutil.AccessDenied(pid=123),
@@ -105,7 +105,7 @@ def test_transient_sampling_error_does_not_stop_monitor(caplog):
 def test_transient_initial_cpu_error_does_not_stop_monitor(caplog):
     metrics = _make_metrics()
     mon = ResourceMonitor(metrics, interval=0.01)
-    mon.process = MagicMock()
+    mon.process = MagicMock(pid=os.getpid())
     mon.process.cpu_percent.side_effect = [psutil.AccessDenied(pid=123), 12.5]
     mon.process.memory_info.return_value = types.SimpleNamespace(rss=1024 * 1024)
 
@@ -146,7 +146,7 @@ def test_metric_adapter_error_stops_instead_of_being_retried(monkeypatch):
     cpu_usage = FailingGauge()
     metrics = types.SimpleNamespace(cpu_usage=cpu_usage)
     mon = ResourceMonitor(metrics, interval=0.01)
-    mon.process = MagicMock()
+    mon.process = MagicMock(pid=os.getpid())
     mon.process.cpu_percent.return_value = 12.5
     mon.process.memory_info.return_value = types.SimpleNamespace(rss=1024 * 1024)
 
@@ -355,7 +355,7 @@ def test_missing_gauge_attributes():
     """Monitor tolerates metrics objects that lack cpu_usage or ram_usage."""
     metrics = MagicMock(spec=[])  # no attributes
     mon = ResourceMonitor(metrics, interval=0.01)
-    mon.process = MagicMock()
+    mon.process = MagicMock(pid=os.getpid())
     mon.process.cpu_percent.return_value = 1.0
     mon.process.memory_info.return_value = types.SimpleNamespace(rss=1024 * 1024)
     mon.start()

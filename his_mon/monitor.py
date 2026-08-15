@@ -48,8 +48,7 @@ class ResourceMonitor:
         """
         self.metrics = metrics_obj
         self.interval = _validated_interval(interval)
-        self._process_owner_pid = os.getpid()
-        self.process = psutil.Process(self._process_owner_pid)
+        self.process = psutil.Process(os.getpid())
         self._stop_event = Event()
         self.logger = logging.getLogger("ResourceMonitor")
         self._thread = None
@@ -57,17 +56,15 @@ class ResourceMonitor:
 
     def _bind_current_process(self) -> None:
         current_pid = os.getpid()
-        if current_pid == self._process_owner_pid:
+        if current_pid == self.process.pid:
             return
 
         with _runtime.monitor_rebind_lock:
             current_pid = os.getpid()
-            if current_pid == self._process_owner_pid:
+            if current_pid == self.process.pid:
                 return
 
-            process = psutil.Process(current_pid)
-            self.process = process
-            self._process_owner_pid = current_pid
+            self.process = psutil.Process(current_pid)
             self._stop_event = Event()
             self._thread = None
             self._thread_lock = Lock()

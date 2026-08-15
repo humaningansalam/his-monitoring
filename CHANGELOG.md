@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 - 2026-08-15
+
+### Changed
+
+- Simplified internal logging, monitor, and webhook runtime state without changing the public API.
+- Clarified Prometheus metric naming and how to expose collected metrics for scraping.
+
 ## 0.2.0 - 2026-07-19
 
 ### Changed

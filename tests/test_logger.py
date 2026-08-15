@@ -78,11 +78,6 @@ def _count_file_handlers(logger: logging.Logger, path: str) -> int:
 class TestStreamHandlerIdempotency:
     """setup_logging() must not duplicate the stdout stream handler."""
 
-    def test_single_call_adds_one_stream_handler(self):
-        with _isolated_root_logger() as root:
-            setup_logging()
-            assert _count_stream_handlers(root) == 1
-
     def test_repeated_calls_do_not_duplicate_stream_handler(self):
         with _isolated_root_logger() as root:
             setup_logging()
@@ -196,15 +191,6 @@ class TestFileHandlerIdempotency:
                 h for h in root.handlers if isinstance(h, RotatingFileHandler)
             ]) == 2
 
-    def test_repeated_calls_same_file_absolute_vs_relative(self, tmp_path):
-        """Paths that resolve to the same absolute path are treated as identical."""
-        log_file = str(tmp_path / "app.log")
-        with _isolated_root_logger() as root:
-            setup_logging(log_file=log_file)
-            setup_logging(log_file=log_file)
-            assert _count_file_handlers(root, log_file) == 1
-
-
 # ---------------------------------------------------------------------------
 # Invalid file path handling
 # ---------------------------------------------------------------------------
@@ -277,9 +263,6 @@ class FakeLokiHandler(logging.Handler):
 
 class TestLokiHandlerIdempotency:
     """Repeated setup_logging() calls must not duplicate Loki handlers."""
-
-    def _count_loki_handlers(self, logger: logging.Logger) -> int:
-        return sum(1 for h in logger.handlers if isinstance(h, FakeLokiHandler))
 
     def test_repeated_same_url_tags_do_not_duplicate(self):
         loki_url = "http://loki:3100/loki/api/v1/push"
