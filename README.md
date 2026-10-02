@@ -11,8 +11,9 @@ The package targets Python 3.11+ and depends on:
 - `requests` for webhook delivery
 
 The package is currently distributed from its source repository rather than a
-public package index. From a local checkout, run this from the `repos/`
-directory; pip resolves the declared runtime dependencies from `pyproject.toml`:
+public package index. From a local checkout, run this from the `his-monitoring/`
+repository root (the directory containing `pyproject.toml`); pip resolves the
+declared runtime dependencies:
 
 ```bash
 pip install .
@@ -93,10 +94,11 @@ service's existing Prometheus integration instead of the default registry.
 
 When evaluating upgrade impact for a version, check `CHANGELOG.md` first for version-to-version notes and compatibility guidance.
 
-Run the package tests and build from the `repos/` directory after activating the project environment:
+Run the package tests and build from the `his-monitoring/` repository root:
 
 ```bash
-uv run python -m pytest tests -v
+uv lock --check
+uv run --locked python -m pytest tests -v
 uv build
 ```
 
