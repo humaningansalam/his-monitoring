@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.2 - 2026-11-24
+
+### Changed
+
+- Clarified module ownership, lifecycle boundaries, public type information, and development commands.
+- Replaced generic project scaffolding with repository-specific contributor and agent guidance.
+
+### Fixed
+
+- Added a fork-safe monitor status property and kept existing webhook reload and shutdown behavior covered by regression tests.
+- Narrowed optional dependency and process-local state handling without changing the documented public imports.
+
+### Development
+
+- Added Ruff formatting and linting, strict mypy checks, a 90% coverage floor, package typing metadata, a single verification script, and GitHub Actions verification.
+
 ## 0.2.1 - 2026-08-15
 
 ### Changed

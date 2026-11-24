@@ -1,7 +1,7 @@
 include README.md
 include LICENSE
 include CHANGELOG.md
-recursive-include his_mon *.py
+recursive-include his_mon *.py py.typed
 prune tests
 prune build
 prune dist

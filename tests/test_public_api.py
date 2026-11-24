@@ -1,4 +1,4 @@
-"""Smoke tests for the public his_mon package API."""
+"""Public package API contract tests."""
 
 import his_mon
 from his_mon import (
@@ -10,13 +10,12 @@ from his_mon import (
     shutdown_webhook,
 )
 
-
 EXPECTED_PUBLIC_API = [
-    "setup_logging",
     "BaseMetrics",
     "ResourceMonitor",
     "init_webhook",
     "send_alert",
+    "setup_logging",
     "shutdown_webhook",
 ]
 

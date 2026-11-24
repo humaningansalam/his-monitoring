@@ -1,44 +1,27 @@
 # his-monitoring
 
-`his-monitoring` provides a small set of helpers for service logging, process metrics, resource monitoring, and webhook-based alerts.
+`his-monitoring` is a small in-process observability library for Python 3.11 and later. It configures logging, registers Prometheus collectors, samples process resources, and delivers webhook alerts without owning an HTTP server or monitoring backend.
 
-## Installation
+## Install
 
-The package targets Python 3.11+ and depends on:
-
-- `prometheus-client` for metrics
-- `psutil` for process resource sampling
-- `requests` for webhook delivery
-
-The package is currently distributed from its source repository rather than a
-public package index. From a local checkout, run this from the `repos/`
-directory; pip resolves the declared runtime dependencies from `pyproject.toml`:
+From a local checkout, run these commands from the repository root (the directory containing `pyproject.toml`):
 
 ```bash
 pip install .
 ```
 
-Install the `loki` extra only when Loki logging support is needed:
+Loki support is optional:
 
 ```bash
 pip install ".[loki]"
 ```
 
-## Public API
-
-The package exports these entry points from `his_mon`:
-
-- `setup_logging(...)`: configure root logging with stdout, optional rotating file output, and optional Loki support.
-- `BaseMetrics(app_name, *, registry=None)`: create Prometheus gauges for CPU and RAM usage plus an error counter named from a Prometheus-compatible `app_name` prefix such as `orders_api`.
-- `ResourceMonitor(metrics_obj, interval=5)`: start a background sampler that updates `cpu_usage` and `ram_usage` on a metrics object.
-- `init_webhook(url)`: initialize the webhook sender once for a destination URL.
-- `send_alert(message)`: queue a webhook message if a webhook manager has been initialized.
-- `shutdown_webhook(...)`: stop the process-wide webhook worker, optionally after draining queued alerts.
-
-## Minimal usage
+## Usage
 
 ```python
 import os
+
+from prometheus_client import start_http_server
 
 from his_mon import (
     BaseMetrics,
@@ -49,62 +32,60 @@ from his_mon import (
     shutdown_webhook,
 )
 
-setup_logging(level="INFO", log_file="app.log")
-metrics = BaseMetrics("my_app")
-monitor = ResourceMonitor(metrics, interval=10)
+setup_logging(level="INFO", log_file="logs/service.log")
+metrics = BaseMetrics("orders_api")
+monitor = ResourceMonitor(metrics_obj, interval=5)
 
+start_http_server(8000)
 init_webhook(os.getenv("WEBHOOK_URL"))
 monitor.start()
+
 try:
-    send_alert("service started")
+    send_alert("orders_api started")
+    # Run the service here; keep the monitor active for its lifetime.
 finally:
     monitor.stop()
     shutdown_webhook(drain=True)
 ```
 
-### Exposing the metrics to Prometheus
+## Public API
 
-`BaseMetrics` registers collectors and `ResourceMonitor` updates them, but
-`his-monitoring` does not start an HTTP metrics endpoint. If the service does
-not already expose the default Prometheus registry, the existing
-`prometheus-client` dependency can do that directly:
+### `setup_logging(...)`
 
-```python
-from prometheus_client import start_http_server
+Configures the root logger with stdout and optional rotating-file and Loki handlers. Equivalent repeated calls do not add duplicate handlers. `log_file` accepts strings and path-like objects.
 
-from his_mon import BaseMetrics, ResourceMonitor
+### `BaseMetrics(app_name, *, registry=None)`
 
-metrics = BaseMetrics("orders_api")
-monitor = ResourceMonitor(metrics)
+Creates or reuses these collectors in the selected `CollectorRegistry`:
 
-start_http_server(8000)
-monitor.start()
-```
+- `<app_name>_cpu_usage_percent`
+- `<app_name>_ram_usage_mb`
+- `<app_name>_errors_total{type=...}`
 
-Prometheus can then scrape the service's metrics endpoint on port `8000`.
-When using a custom `CollectorRegistry`, expose that same registry through the
-service's existing Prometheus integration instead of the default registry.
+Use a Prometheus-compatible prefix such as `orders_api`. RAM values are measured in MiB (despite the retained `_mb` suffix). A conflicting collector type or label set raises a structured exception. Expose the same registry through your service if you use a custom registry.
 
-`app_name` is part of each metric name. It must start with a letter, `_`, or
-`:` and then contain only letters, digits, `_`, or `:`. For example, use
-`orders_api` rather than `orders-api`.
+### `ResourceMonitor(metrics_obj, interval=5)`
 
-## Verification
+Samples the current process on a daemon thread. Use `start()`, `stop()`, and `is_running`. The supplied object may expose `cpu_usage` and `ram_usage` gauges with a `set(float)` method; missing gauges are ignored.
 
-When evaluating upgrade impact for a version, check `CHANGELOG.md` first for version-to-version notes and compatibility guidance.
+### Webhook helpers
 
-Run the package tests and build from the `repos/` directory after activating the project environment:
+`init_webhook(url)` starts one process-wide delivery worker. `send_alert(message)` queues a message and is a no-op when no webhook is configured. `shutdown_webhook(drain=False, timeout=2)` stops the worker; `drain=True` waits until already queued alerts have been handled.
+
+The drain option waits without a join timeout; a non-draining stop may leave an in-flight delivery to finish. Delivery uses a five-second request timeout, does not follow redirects, and logs failure metadata without logging alert contents.
+
+## Boundaries
+
+The library does not provide a `/metrics` route, persistence, dashboards, webhook authentication, retries, or deployment configuration. Those remain application or platform responsibilities.
+
+Process forks and module reloads receive dedicated lifecycle handling. Keep `stop()` and `shutdown_webhook()` in application teardown paths even though worker threads are daemons.
+
+## Development
 
 ```bash
-uv run python -m pytest tests -v
-uv build
+./scripts/verify
 ```
 
-## Operational notes
+The script syncs the locked development environment, runs all quality gates, and builds both distributions.
 
-- `ResourceMonitor` samples the current Python process and updates metrics in a daemon thread; stop it explicitly when shutting down.
-- `setup_logging` is idempotent for equivalent handlers and supports stdout, rotating file output, and Loki when `python-logging-loki` is available.
-- `init_webhook` keeps a single process-wide webhook manager; `send_alert` is a no-op until initialization.
-- `shutdown_webhook(drain=True)` waits until queued alerts are accounted for. For non-draining shutdown, `timeout` bounds the worker join; an in-flight delivery may finish asynchronously, and `init_webhook` retains that manager until its worker stops.
-- `BaseMetrics` registers Prometheus collectors using the provided app name as a prefix, so reuse the same prefix consistently within one registry.
-- The webhook sender posts JSON payloads with a `text` field and reports HTTP or transport failures through the logger.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for change expectations and [CHANGELOG.md](CHANGELOG.md) for release history.

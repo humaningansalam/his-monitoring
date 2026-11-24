@@ -1,12 +1,5 @@
-"""Focused tests for the optimized ResourceMonitor sampling loop.
+"""ResourceMonitor lifecycle and sampling tests."""
 
-Covers:
-- start() / stop() public API lifecycle
-- cpu_usage and ram_usage gauges are set after one interval
-- stop() completes quickly (responsiveness)
-- Double-start guard (no second thread)
-- Missing-gauge tolerance
-"""
 from __future__ import annotations
 
 import logging
@@ -14,14 +7,15 @@ import math
 import os
 import select
 import signal
-import time
 import threading
+import time
 import types
 from unittest.mock import MagicMock
+
 import psutil
 import pytest
 
-from his_mon import monitor
+from his_mon import monitor as monitor_module
 from his_mon.monitor import (
     InvalidMonitorIntervalError,
     MonitorErrorCode,
@@ -29,12 +23,11 @@ from his_mon.monitor import (
 )
 
 
-def _make_metrics():
-    """Return a minimal metrics stub with cpu_usage and ram_usage gauge mocks."""
-    m = MagicMock()
-    m.cpu_usage = MagicMock()
-    m.ram_usage = MagicMock()
-    return m
+def _make_metrics_stub():
+    metrics_stub = MagicMock()
+    metrics_stub.cpu_usage = MagicMock()
+    metrics_stub.ram_usage = MagicMock()
+    return metrics_stub
 
 
 def _wait_for(predicate, timeout=1.2, interval=0.01):
@@ -47,52 +40,64 @@ def _wait_for(predicate, timeout=1.2, interval=0.01):
 
 
 def test_start_stop_lifecycle():
-    """Monitor starts, thread becomes alive, stop() joins within 2 s."""
-    metrics = _make_metrics()
-    mon = ResourceMonitor(metrics, interval=1)
-    mon.start()
-    assert mon._thread is not None
-    assert mon._thread.is_alive()
+    metrics = _make_metrics_stub()
+    resource_monitor = ResourceMonitor(metrics, interval=1)
+    resource_monitor.start()
+    assert resource_monitor.is_running
+    worker_thread = resource_monitor._thread
+    assert worker_thread is not None
 
-    t0 = time.monotonic()
-    mon.stop()
-    elapsed = time.monotonic() - t0
-    assert not mon._thread.is_alive(), "thread should have exited"
+    started_at = time.monotonic()
+    resource_monitor.stop()
+    elapsed = time.monotonic() - started_at
+    assert not worker_thread.is_alive(), "thread should have exited"
+    assert not resource_monitor.is_running
     assert elapsed < 2.0, f"stop() took too long: {elapsed:.2f}s"
 
 
+def test_stop_before_start_is_a_noop():
+    resource_monitor = ResourceMonitor(_make_metrics_stub())
+    resource_monitor.stop()
+    assert not resource_monitor.is_running
+
+
 def test_metrics_updated_after_one_interval():
-    """After one interval elapses, cpu_usage.set() and ram_usage.set() are called."""
-    metrics = _make_metrics()
-    mon = ResourceMonitor(metrics, interval=1)
-    mon.start()
-    assert _wait_for(lambda: metrics.cpu_usage.set.called and metrics.ram_usage.set.called)
-    mon.stop()
+    metrics = _make_metrics_stub()
+    resource_monitor = ResourceMonitor(metrics, interval=1)
+    resource_monitor.start()
+    assert _wait_for(
+        lambda: metrics.cpu_usage.set.called and metrics.ram_usage.set.called
+    )
+    resource_monitor.stop()
 
     assert metrics.cpu_usage.set.called, "cpu_usage.set() was never called"
     assert metrics.ram_usage.set.called, "ram_usage.set() was never called"
-    # CPU value must be a non-negative float (0.0 is fine on an idle process).
-    cpu_val = metrics.cpu_usage.set.call_args[0][0]
-    assert isinstance(cpu_val, float) and cpu_val >= 0.0, f"unexpected cpu value: {cpu_val}"
+    sampled_cpu_percent = metrics.cpu_usage.set.call_args[0][0]
+    assert isinstance(sampled_cpu_percent, float) and sampled_cpu_percent >= 0.0, (
+        f"unexpected cpu value: {sampled_cpu_percent}"
+    )
 
 
 def test_transient_sampling_error_does_not_stop_monitor(caplog):
-    """A psutil sampling failure is logged and retried on the normal loop."""
-    metrics = _make_metrics()
-    mon = ResourceMonitor(metrics, interval=0.01)
-    mon.process = MagicMock(pid=os.getpid())
-    mon.process.cpu_percent.side_effect = [
+    metrics = _make_metrics_stub()
+    resource_monitor = ResourceMonitor(metrics, interval=0.01)
+    resource_monitor.process = MagicMock(pid=os.getpid())
+    resource_monitor.process.cpu_percent.side_effect = [
         0.0,
         psutil.AccessDenied(pid=123),
         12.5,
     ]
-    mon.process.memory_info.return_value = types.SimpleNamespace(rss=1024 * 1024)
+    resource_monitor.process.memory_info.return_value = types.SimpleNamespace(
+        rss=1024 * 1024
+    )
 
     with caplog.at_level("ERROR", logger="ResourceMonitor"):
-        mon.start()
+        resource_monitor.start()
         assert _wait_for(lambda: metrics.cpu_usage.set.called, timeout=0.5)
-        assert mon._thread is not None and mon._thread.is_alive()
-        mon.stop()
+        assert (
+            resource_monitor._thread is not None and resource_monitor._thread.is_alive()
+        )
+        resource_monitor.stop()
 
     metrics.cpu_usage.set.assert_called_with(12.5)
     metrics.ram_usage.set.assert_called_with(1.0)
@@ -103,17 +108,24 @@ def test_transient_sampling_error_does_not_stop_monitor(caplog):
 
 
 def test_transient_initial_cpu_error_does_not_stop_monitor(caplog):
-    metrics = _make_metrics()
-    mon = ResourceMonitor(metrics, interval=0.01)
-    mon.process = MagicMock(pid=os.getpid())
-    mon.process.cpu_percent.side_effect = [psutil.AccessDenied(pid=123), 12.5]
-    mon.process.memory_info.return_value = types.SimpleNamespace(rss=1024 * 1024)
+    metrics = _make_metrics_stub()
+    resource_monitor = ResourceMonitor(metrics, interval=0.01)
+    resource_monitor.process = MagicMock(pid=os.getpid())
+    resource_monitor.process.cpu_percent.side_effect = [
+        psutil.AccessDenied(pid=123),
+        12.5,
+    ]
+    resource_monitor.process.memory_info.return_value = types.SimpleNamespace(
+        rss=1024 * 1024
+    )
 
     with caplog.at_level(logging.ERROR, logger="ResourceMonitor"):
-        mon.start()
+        resource_monitor.start()
         assert _wait_for(lambda: metrics.cpu_usage.set.called, timeout=0.5)
-        assert mon._thread is not None and mon._thread.is_alive()
-        mon.stop()
+        assert (
+            resource_monitor._thread is not None and resource_monitor._thread.is_alive()
+        )
+        resource_monitor.stop()
 
     metrics.cpu_usage.set.assert_called_with(12.5)
     metrics.ram_usage.set.assert_called_with(1.0)
@@ -126,16 +138,17 @@ def test_transient_initial_cpu_error_does_not_stop_monitor(caplog):
 
 
 def test_metric_adapter_error_stops_instead_of_being_retried(monkeypatch):
-    """Consumer programming errors must not enter the psutil recovery loop."""
     failure = RuntimeError("metric adapter failed")
     captured = []
     thread_failed = threading.Event()
 
     class FailingGauge:
         calls = 0
+        last_value = None
 
         def set(self, value):
             self.calls += 1
+            self.last_value = value
             raise failure
 
     def capture_thread_failure(args):
@@ -145,61 +158,74 @@ def test_metric_adapter_error_stops_instead_of_being_retried(monkeypatch):
     monkeypatch.setattr(threading, "excepthook", capture_thread_failure)
     cpu_usage = FailingGauge()
     metrics = types.SimpleNamespace(cpu_usage=cpu_usage)
-    mon = ResourceMonitor(metrics, interval=0.01)
-    mon.process = MagicMock(pid=os.getpid())
-    mon.process.cpu_percent.return_value = 12.5
-    mon.process.memory_info.return_value = types.SimpleNamespace(rss=1024 * 1024)
+    resource_monitor = ResourceMonitor(metrics, interval=0.01)
+    resource_monitor.process = MagicMock(pid=os.getpid())
+    resource_monitor.process.cpu_percent.return_value = 12.5
+    resource_monitor.process.memory_info.return_value = types.SimpleNamespace(
+        rss=1024 * 1024
+    )
 
-    mon.start()
+    resource_monitor.start()
     assert thread_failed.wait(0.5)
-    assert _wait_for(lambda: mon._thread is not None and not mon._thread.is_alive())
-    mon.stop()
+    assert _wait_for(
+        lambda: (
+            resource_monitor._thread is not None
+            and not resource_monitor._thread.is_alive()
+        )
+    )
+    resource_monitor.stop()
 
     assert cpu_usage.calls == 1
+    assert cpu_usage.last_value == 12.5
     assert len(captured) == 1
     assert captured[0].exc_type is RuntimeError
     assert captured[0].exc_value is failure
 
 
 def test_stop_is_responsive():
-    """stop() returns in well under interval seconds, not blocked by CPU sampling."""
-    metrics = _make_metrics()
-    # Long interval — if stop() blocks on sampling it would take > interval seconds.
-    mon = ResourceMonitor(metrics, interval=10)
-    mon.start()
-    assert _wait_for(lambda: mon._thread is not None and mon._thread.is_alive(), timeout=0.1)
+    metrics = _make_metrics_stub()
+    resource_monitor = ResourceMonitor(metrics, interval=10)
+    resource_monitor.start()
+    assert _wait_for(
+        lambda: (
+            resource_monitor._thread is not None and resource_monitor._thread.is_alive()
+        ),
+        timeout=0.1,
+    )
 
-    t0 = time.monotonic()
-    mon.stop()
-    elapsed = time.monotonic() - t0
-    # Should wake from Event.wait immediately — allow generous 1.5 s margin.
+    started_at = time.monotonic()
+    resource_monitor.stop()
+    elapsed = time.monotonic() - started_at
     assert elapsed < 1.5, f"stop() was not responsive: took {elapsed:.2f}s"
 
 
 def test_max_supported_interval_starts_and_stops():
-    metrics = _make_metrics()
-    mon = ResourceMonitor(metrics, interval=threading.TIMEOUT_MAX)
-    mon.start()
-    assert mon._thread is not None and mon._thread.is_alive()
-    mon.stop()
-    assert not mon._thread.is_alive()
+    metrics = _make_metrics_stub()
+    resource_monitor = ResourceMonitor(metrics, interval=threading.TIMEOUT_MAX)
+    resource_monitor.start()
+    assert resource_monitor.is_running
+    worker_thread = resource_monitor._thread
+    assert worker_thread is not None
+    resource_monitor.stop()
+    assert not worker_thread.is_alive()
+    assert not resource_monitor.is_running
 
 
 def test_double_start_no_extra_thread():
-    """Calling start() twice does not create a second monitoring thread."""
-    metrics = _make_metrics()
-    mon = ResourceMonitor(metrics, interval=1)
-    mon.start()
-    first_thread = mon._thread
-    mon.start()  # should be a no-op
-    assert mon._thread is first_thread, "start() should not replace a live thread"
-    mon.stop()
+    metrics = _make_metrics_stub()
+    resource_monitor = ResourceMonitor(metrics, interval=1)
+    resource_monitor.start()
+    first_thread = resource_monitor._thread
+    resource_monitor.start()
+    assert resource_monitor._thread is first_thread, (
+        "start() should not replace a live thread"
+    )
+    resource_monitor.stop()
 
 
 def test_concurrent_start_is_single_threaded(monkeypatch: pytest.MonkeyPatch):
-    """Concurrent start() calls should not create more than one monitoring thread."""
-    metrics = _make_metrics()
-    mon = ResourceMonitor(metrics, interval=1)
+    metrics = _make_metrics_stub()
+    resource_monitor = ResourceMonitor(metrics, interval=1)
 
     started_threads = []
 
@@ -208,12 +234,12 @@ def test_concurrent_start_is_single_threaded(monkeypatch: pytest.MonkeyPatch):
             started_threads.append(self)
             super().__init__(*args, **kwargs)
 
-    monkeypatch.setattr(monitor, "Thread", CountingThread)
+    monkeypatch.setattr(monitor_module, "Thread", CountingThread)
     start_gate = threading.Barrier(3)
 
     def _runner():
         start_gate.wait()
-        mon.start()
+        resource_monitor.start()
 
     callers = [threading.Thread(target=_runner), threading.Thread(target=_runner)]
     for caller in callers:
@@ -223,8 +249,8 @@ def test_concurrent_start_is_single_threaded(monkeypatch: pytest.MonkeyPatch):
         caller.join()
 
     assert len(started_threads) == 1
-    assert mon._thread is not None
-    mon.stop()
+    assert resource_monitor._thread is not None
+    resource_monitor.stop()
 
 
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="requires POSIX fork")
@@ -240,6 +266,7 @@ def test_pre_fork_monitor_samples_the_child_process(monkeypatch):
             self._reported = False
 
         def cpu_percent(self, interval=None):
+            assert interval is None
             return 1.0
 
         def memory_info(self):
@@ -248,18 +275,18 @@ def test_pre_fork_monitor_samples_the_child_process(monkeypatch):
                 self._reported = True
             return types.SimpleNamespace(rss=1024 * 1024)
 
-    monkeypatch.setattr(monitor.psutil, "Process", RecordingProcess)
-    mon = ResourceMonitor(_make_metrics(), interval=0.01)
+    monkeypatch.setattr(monitor_module.psutil, "Process", RecordingProcess)
+    resource_monitor = ResourceMonitor(_make_metrics_stub(), interval=0.01)
 
     try:
         child_pid = os.fork()
         if child_pid == 0:
             os.close(sample_reader)
             try:
-                mon.start()
+                resource_monitor.start()
                 time.sleep(0.05)
-                mon.stop()
-            except BaseException:
+                resource_monitor.stop()
+            except Exception:  # noqa: BLE001 - child failures become exit status.
                 os._exit(1)
             os.close(sample_writer)
             os._exit(0)
@@ -291,12 +318,13 @@ def test_fork_resets_parent_owned_lifecycle_lock():
             return True
 
         def join(self, timeout=None):
+            assert timeout == 2.0
             join_entered.set()
             release_join.wait(2.0)
 
-    mon = ResourceMonitor(_make_metrics(), interval=0.01)
-    mon._thread = BlockingThread()
-    parent_stop = threading.Thread(target=mon.stop)
+    resource_monitor = ResourceMonitor(_make_metrics_stub(), interval=0.01)
+    resource_monitor._thread = BlockingThread()
+    parent_stop = threading.Thread(target=resource_monitor.stop)
     parent_stop.start()
     assert join_entered.wait(1.0)
 
@@ -306,10 +334,13 @@ def test_fork_resets_parent_owned_lifecycle_lock():
             signal.signal(signal.SIGALRM, lambda _signum, _frame: os._exit(77))
             signal.alarm(2)
             try:
-                mon.start()
-                assert mon._thread is not None and mon._thread.is_alive()
-                mon.stop()
-            except BaseException:
+                resource_monitor.start()
+                assert (
+                    resource_monitor._thread is not None
+                    and resource_monitor._thread.is_alive()
+                )
+                resource_monitor.stop()
+            except Exception:  # noqa: BLE001 - child failures become exit status.
                 os._exit(1)
             os._exit(0)
 
@@ -338,8 +369,7 @@ def test_fork_resets_parent_owned_lifecycle_lock():
     ],
 )
 def test_invalid_interval_rejected_with_structured_error(interval):
-    """Invalid intervals are rejected through one typed configuration boundary."""
-    metrics = _make_metrics()
+    metrics = _make_metrics_stub()
 
     with pytest.raises(InvalidMonitorIntervalError) as raised:
         ResourceMonitor(metrics, interval=interval)
@@ -352,22 +382,33 @@ def test_invalid_interval_rejected_with_structured_error(interval):
 
 
 def test_missing_gauge_attributes():
-    """Monitor tolerates metrics objects that lack cpu_usage or ram_usage."""
     metrics = MagicMock(spec=[])  # no attributes
-    mon = ResourceMonitor(metrics, interval=0.01)
-    mon.process = MagicMock(pid=os.getpid())
-    mon.process.cpu_percent.return_value = 1.0
-    mon.process.memory_info.return_value = types.SimpleNamespace(rss=1024 * 1024)
-    mon.start()
+    resource_monitor = ResourceMonitor(metrics, interval=0.01)
+    resource_monitor.process = MagicMock(pid=os.getpid())
+    resource_monitor.process.cpu_percent.return_value = 1.0
+    resource_monitor.process.memory_info.return_value = types.SimpleNamespace(
+        rss=1024 * 1024
+    )
+    resource_monitor.start()
     assert _wait_for(
-        lambda: mon.process.memory_info.called
-        and mon._thread is not None
-        and mon._thread.is_alive(),
+        lambda: (
+            resource_monitor.process.memory_info.called
+            and resource_monitor._thread is not None
+            and resource_monitor._thread.is_alive()
+        ),
         timeout=0.5,
     )
-    mon.stop()  # must not raise
+    resource_monitor.stop()
 
 
-if __name__ == "__main__":
-    import pytest
-    raise SystemExit(pytest.main([__file__, "-v"]))
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="requires POSIX fork")
+def test_is_running_after_fork_does_not_use_parent_lock():
+    resource_monitor = ResourceMonitor(_make_metrics_stub(), interval=1)
+    with resource_monitor._thread_lock:
+        child_pid = os.fork()
+        if child_pid == 0:
+            signal.signal(signal.SIGALRM, lambda _signum, _frame: os._exit(77))
+            signal.alarm(2)
+            os._exit(1 if resource_monitor.is_running else 0)
+        _, child_status = os.waitpid(child_pid, 0)
+    assert os.waitstatus_to_exitcode(child_status) == 0
