@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "his-monitoring"
-version = "0.2.1"
+version = "0.2.2"
 description = "Logging, metrics, resource monitoring, and webhook alert helpers for Python services"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -16,6 +16,7 @@ dependencies = [
 
 [project.urls]
 Changelog = "https://github.com/humaningansalam/his-monitoring/blob/main/CHANGELOG.md"
+Issues = "https://github.com/humaningansalam/his-monitoring/issues"
 Source = "https://github.com/humaningansalam/his-monitoring"
 
 [project.optional-dependencies]
@@ -25,10 +26,46 @@ loki = [
 
 [dependency-groups]
 dev = [
+    "mypy",
     "pytest>=9.1.1",
+    "pytest-cov",
+    "ruff",
+    "types-psutil",
+    "types-requests",
 ]
 
 [tool.setuptools]
 include-package-data = true
 package-dir = {"" = "."}
 packages = ["his_mon"]
+
+[tool.setuptools.package-data]
+his_mon = ["py.typed"]
+
+[tool.pytest.ini_options]
+addopts = ["--strict-config", "--strict-markers"]
+testpaths = ["tests"]
+xfail_strict = true
+
+[tool.coverage.run]
+branch = true
+source = ["his_mon"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["ARG", "B", "BLE", "E4", "E7", "E9", "F", "I", "N", "RUF", "SIM", "UP"]
+
+[tool.mypy]
+files = ["his_mon"]
+python_version = "3.11"
+show_error_codes = true
+strict = true
+warn_unreachable = true

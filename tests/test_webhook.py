@@ -1,4 +1,4 @@
-"""Public-flow tests for webhook delivery, shutdown, and secrecy contracts."""
+"""Webhook delivery, lifecycle, and secrecy tests."""
 
 from __future__ import annotations
 
@@ -33,6 +33,32 @@ def _reset_global_webhook():
     shutdown_webhook()
 
 
+def test_blank_url_does_not_initialize_worker():
+    with patch("his_mon.webhook.requests.post") as mock_post:
+        init_webhook("   ")
+        send_alert("ignored alert")
+        shutdown_webhook(drain=True)
+
+    mock_post.assert_not_called()
+
+
+def test_second_url_is_ignored_without_changing_destination(caplog):
+    with (
+        patch(
+            "his_mon.webhook.requests.post",
+            return_value=_make_response(204, "No Content"),
+        ) as mock_post,
+        caplog.at_level(logging.WARNING, logger="his_mon.webhook"),
+    ):
+        init_webhook("https://example.com/first")
+        init_webhook("https://example.com/second")
+        send_alert("destination contract")
+        shutdown_webhook(drain=True)
+
+    assert mock_post.call_args.args[0] == "https://example.com/first"
+    assert any("different URL" in record.getMessage() for record in caplog.records)
+
+
 class TestWebhookDelivery:
     def test_successful_public_delivery_uses_payload_and_timeout(self):
         with patch(
@@ -65,14 +91,16 @@ class TestWebhookDelivery:
         caplog,
     ):
         secret_message = "http failure secret"
-        with caplog.at_level(logging.ERROR, logger="his_mon.webhook"):
-            with patch(
+        with (
+            caplog.at_level(logging.ERROR, logger="his_mon.webhook"),
+            patch(
                 "his_mon.webhook.requests.post",
                 return_value=_make_response(status_code, reason),
-            ):
-                assert init_webhook("https://example.com/hook") is None
-                send_alert(secret_message)
-                shutdown_webhook(drain=True)
+            ),
+        ):
+            assert init_webhook("https://example.com/hook") is None
+            send_alert(secret_message)
+            shutdown_webhook(drain=True)
 
         failures = [
             record
@@ -86,8 +114,7 @@ class TestWebhookDelivery:
         assert failure.exc_info is None
         assert failure.getMessage() == f"Webhook delivery failed: HTTP {status_code}"
         assert all(
-            secret_message not in record.getMessage()
-            for record in caplog.records
+            secret_message not in record.getMessage() for record in caplog.records
         )
         assert secret_message not in caplog.text
 
@@ -110,15 +137,17 @@ class TestWebhookDelivery:
             "transport failure secret two",
             "transport failure secret three",
         ]
-        with caplog.at_level(logging.ERROR, logger="his_mon.webhook"):
-            with patch(
+        with (
+            caplog.at_level(logging.ERROR, logger="his_mon.webhook"),
+            patch(
                 "his_mon.webhook.requests.post",
                 side_effect=transport_error,
-            ) as mock_post:
-                assert init_webhook("https://example.com/hook") is None
-                for secret_message in secret_messages:
-                    send_alert(secret_message)
-                shutdown_webhook(drain=True)
+            ) as mock_post,
+        ):
+            assert init_webhook("https://example.com/hook") is None
+            for secret_message in secret_messages:
+                send_alert(secret_message)
+            shutdown_webhook(drain=True)
 
         failures = [
             record
@@ -135,20 +164,24 @@ class TestWebhookDelivery:
             for record in caplog.records
             for secret_message in secret_messages
         )
-        assert all(secret_message not in caplog.text for secret_message in secret_messages)
+        assert all(
+            secret_message not in caplog.text for secret_message in secret_messages
+        )
 
     def test_transport_exception_text_cannot_reinject_alert_body(self, caplog):
         secret_message = "transport response echo secret"
         transport_error = requests.exceptions.ChunkedEncodingError(secret_message)
 
-        with caplog.at_level(logging.ERROR, logger="his_mon.webhook"):
-            with patch(
+        with (
+            caplog.at_level(logging.ERROR, logger="his_mon.webhook"),
+            patch(
                 "his_mon.webhook.requests.post",
                 side_effect=transport_error,
-            ):
-                assert init_webhook("https://example.com/hook") is None
-                send_alert(secret_message)
-                shutdown_webhook(drain=True)
+            ),
+        ):
+            assert init_webhook("https://example.com/hook") is None
+            send_alert(secret_message)
+            shutdown_webhook(drain=True)
 
         failures = [
             record
@@ -172,44 +205,47 @@ class TestWebhookDelivery:
         replacement_message = "replacement worker delivery"
 
         def blocking_post(url, json, timeout, allow_redirects):
+            assert url == "https://example.com/hook"
+            assert json["text"] in {"in-flight alert", replacement_message}
+            assert timeout == 5
             assert allow_redirects is False
             first_delivery_started.set()
             release_first_delivery.wait(1.0)
             return _make_response(204, "No Content")
 
-        with caplog.at_level(logging.DEBUG, logger="his_mon.webhook"):
-            with patch(
+        with (
+            caplog.at_level(logging.DEBUG, logger="his_mon.webhook"),
+            patch(
                 "his_mon.webhook.requests.post",
                 side_effect=blocking_post,
-            ) as mock_post:
-                assert init_webhook("https://example.com/hook") is None
-                send_alert("in-flight alert")
-                assert first_delivery_started.wait(1.0)
-                send_alert(secret_message)
+            ) as mock_post,
+        ):
+            assert init_webhook("https://example.com/hook") is None
+            send_alert("in-flight alert")
+            assert first_delivery_started.wait(1.0)
+            send_alert(secret_message)
 
-                shutdown_webhook(drain=False, timeout=0.01)
-                reloaded_webhook = importlib.reload(webhook_module)
-                assert reloaded_webhook.init_webhook("https://example.com/hook") is None
-                reloaded_webhook.send_alert(overlap_message)
+            shutdown_webhook(drain=False, timeout=0.01)
+            reloaded_webhook = importlib.reload(webhook_module)
+            assert reloaded_webhook.init_webhook("https://example.com/hook") is None
+            reloaded_webhook.send_alert(overlap_message)
 
-                release_first_delivery.set()
-                reloaded_webhook.shutdown_webhook(timeout=1.0)
+            release_first_delivery.set()
+            reloaded_webhook.shutdown_webhook(timeout=1.0)
 
-                assert reloaded_webhook.init_webhook("https://example.com/hook") is None
-                reloaded_webhook.send_alert(replacement_message)
-                reloaded_webhook.shutdown_webhook(drain=True)
+            assert reloaded_webhook.init_webhook("https://example.com/hook") is None
+            reloaded_webhook.send_alert(replacement_message)
+            reloaded_webhook.shutdown_webhook(drain=True)
 
         assert [call.kwargs["json"] for call in mock_post.call_args_list] == [
             {"text": "in-flight alert"},
             {"text": replacement_message},
         ]
         assert all(
-            secret_message not in record.getMessage()
-            for record in caplog.records
+            secret_message not in record.getMessage() for record in caplog.records
         )
         assert all(
-            overlap_message not in record.getMessage()
-            for record in caplog.records
+            overlap_message not in record.getMessage() for record in caplog.records
         )
 
 
@@ -221,8 +257,7 @@ class TestSendAlertNoop:
             send_alert(secret_message)
 
         assert all(
-            secret_message not in record.getMessage()
-            for record in caplog.records
+            secret_message not in record.getMessage() for record in caplog.records
         )
 
     def test_send_after_shutdown_is_a_silent_noop(self, caplog):
@@ -234,8 +269,7 @@ class TestSendAlertNoop:
             send_alert(secret_message)
 
         assert all(
-            secret_message not in record.getMessage()
-            for record in caplog.records
+            secret_message not in record.getMessage() for record in caplog.records
         )
 
 
@@ -245,6 +279,8 @@ def test_reload_reuses_the_process_wide_manager_and_worker():
     second_delivery_started = threading.Event()
 
     def blocking_post(url, json, timeout, allow_redirects):
+        assert url == "https://example.com/hook"
+        assert timeout == 5
         assert allow_redirects is False
         if json["text"] == "before reload":
             first_delivery_started.set()
@@ -282,6 +318,9 @@ def test_draining_shutdown_waits_until_in_flight_delivery_finishes():
     replacement_message = "replacement delivery"
 
     def blocking_post(url, json, timeout, allow_redirects):
+        assert url == "https://example.com/hook"
+        assert json["text"] in {"blocked delivery", replacement_message}
+        assert timeout == 5
         assert allow_redirects is False
         delivery_started.set()
         release_delivery.wait(1.0)
@@ -296,10 +335,13 @@ def test_draining_shutdown_waits_until_in_flight_delivery_finishes():
         assert delivery_started.wait(1.0)
 
         def shutdown() -> None:
-            assert webhook_module.shutdown_webhook(
-                drain=True,
-                timeout=0.01,
-            ) is None
+            assert (
+                webhook_module.shutdown_webhook(
+                    drain=True,
+                    timeout=0.01,
+                )
+                is None
+            )
             shutdown_finished.set()
 
         shutdown_thread = threading.Thread(target=shutdown, daemon=True)
@@ -332,6 +374,8 @@ def test_pre_fork_configuration_creates_a_child_local_worker():
     delivery_reader, delivery_writer = os.pipe()
 
     def post_from_child(url, json, timeout, allow_redirects):
+        assert url == "https://example.com/hook"
+        assert timeout == 5
         assert allow_redirects is False
         os.write(delivery_writer, json["text"].encode() + b"\n")
         return _make_response(204, "No Content")
@@ -346,7 +390,7 @@ def test_pre_fork_configuration_creates_a_child_local_worker():
                 try:
                     send_alert("from child")
                     shutdown_webhook(drain=True)
-                except BaseException:
+                except Exception:  # noqa: BLE001 - child failures become exit status.
                     os._exit(1)
                 os._exit(0)
 
